@@ -1,6 +1,6 @@
 /**
  * Destroys the builder
- * @fires QueryBuilder#beforeDestroy
+ * @fires QueryBuilder.beforeDestroy
  */
 QueryBuilder.prototype.destroy = function() {
     /**
@@ -27,8 +27,8 @@ QueryBuilder.prototype.destroy = function() {
 
 /**
  * Clear all rules and resets the root group
- * @fires QueryBuilder#beforeReset
- * @fires QueryBuilder#afterReset
+ * @fires QueryBuilder.beforeReset
+ * @fires QueryBuilder.afterReset
  */
 QueryBuilder.prototype.reset = function() {
     /**
@@ -46,6 +46,10 @@ QueryBuilder.prototype.reset = function() {
 
     this.model.root.empty();
 
+    this.model.root.data = undefined;
+    this.model.root.flags = $.extend({}, this.settings.default_group_flags);
+    this.model.root.condition = this.settings.default_condition;
+
     this.addRule(this.model.root);
 
     /**
@@ -54,12 +58,14 @@ QueryBuilder.prototype.reset = function() {
      * @memberof QueryBuilder
      */
     this.trigger('afterReset');
+
+    this.trigger('rulesChanged');
 };
 
 /**
  * Clears all rules and removes the root group
- * @fires QueryBuilder#beforeClear
- * @fires QueryBuilder#afterClear
+ * @fires QueryBuilder.beforeClear
+ * @fires QueryBuilder.afterClear
  */
 QueryBuilder.prototype.clear = function() {
     /**
@@ -86,6 +92,8 @@ QueryBuilder.prototype.clear = function() {
      * @memberof QueryBuilder
      */
     this.trigger('afterClear');
+
+    this.trigger('rulesChanged');
 };
 
 /**
@@ -123,7 +131,7 @@ QueryBuilder.prototype.getModel = function(target) {
  * @param {object} [options]
  * @param {boolean} [options.skip_empty=false] - skips validating rules that have no filter selected
  * @returns {boolean}
- * @fires QueryBuilder#changer:validate
+ * @fires QueryBuilder.changer:validate
  */
 QueryBuilder.prototype.validate = function(options) {
     options = $.extend({
@@ -209,9 +217,9 @@ QueryBuilder.prototype.validate = function(options) {
  * @param {boolean} [options.allow_invalid=false] - returns rules even if they are invalid
  * @param {boolean} [options.skip_empty=false] - remove rules that have no filter selected
  * @returns {object}
- * @fires QueryBuilder#changer:ruleToJson
- * @fires QueryBuilder#changer:groupToJson
- * @fires QueryBuilder#changer:getRules
+ * @fires QueryBuilder.changer:ruleToJson
+ * @fires QueryBuilder.changer:groupToJson
+ * @fires QueryBuilder.changer:getRules
  */
 QueryBuilder.prototype.getRules = function(options) {
     options = $.extend({
@@ -308,6 +316,7 @@ QueryBuilder.prototype.getRules = function(options) {
     /**
      * Modifies the result of the {@link QueryBuilder#getRules} method
      * @event changer:getRules
+     * @memberof QueryBuilder
      * @param {object} json
      * @returns {object}
      */
@@ -320,10 +329,10 @@ QueryBuilder.prototype.getRules = function(options) {
  * @param {object} [options]
  * @param {boolean} [options.allow_invalid=false] - silent-fail if the data are invalid
  * @throws RulesError, UndefinedConditionError
- * @fires QueryBuilder#changer:setRules
- * @fires QueryBuilder#changer:jsonToRule
- * @fires QueryBuilder#changer:jsonToGroup
- * @fires QueryBuilder#afterSetRules
+ * @fires QueryBuilder.changer:setRules
+ * @fires QueryBuilder.changer:jsonToRule
+ * @fires QueryBuilder.changer:jsonToGroup
+ * @fires QueryBuilder.afterSetRules
  */
 QueryBuilder.prototype.setRules = function(data, options) {
     options = $.extend({
@@ -343,7 +352,6 @@ QueryBuilder.prototype.setRules = function(data, options) {
 
     this.clear();
     this.setRoot(false, data.data, this.parseGroupFlags(data));
-    this.applyGroupFlags(this.model.root);
 
     /**
      * Modifies data before the {@link QueryBuilder#setRules} method
@@ -386,8 +394,6 @@ QueryBuilder.prototype.setRules = function(data, options) {
                         return;
                     }
 
-                    self.applyGroupFlags(model);
-
                     add(item, model);
                 }
             }
@@ -409,21 +415,24 @@ QueryBuilder.prototype.setRules = function(data, options) {
 
                 if (!item.empty) {
                     model.filter = self.getFilterById(item.id, !options.allow_invalid);
+                }
 
-                    if (model.filter) {
-                        model.operator = self.getOperatorByType(item.operator, !options.allow_invalid);
+                if (model.filter) {
+                    model.operator = self.getOperatorByType(item.operator, !options.allow_invalid);
 
-                        if (!model.operator) {
-                            model.operator = self.getOperators(model.filter)[0];
-                        }
-
-                        if (model.operator && model.operator.nb_inputs !== 0 && item.value !== undefined) {
-                            model.value = item.value;
-                        }
+                    if (!model.operator) {
+                        model.operator = self.getOperators(model.filter)[0];
                     }
                 }
 
-                self.applyRuleFlags(model);
+                if (model.operator && model.operator.nb_inputs !== 0) {
+                    if (item.value !== undefined) {
+                        model.value = item.value;
+                    }
+                    else if (model.filter.default_value !== undefined) {
+                        model.value = model.filter.default_value;
+                    }
+                }
 
                 /**
                  * Modifies the Rule object generated from the JSON

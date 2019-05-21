@@ -1,5 +1,6 @@
 /**
- * @module MongoDbSupportPlugin
+ * @class MongoDbSupport
+ * @memberof module:plugins
  * @description Allows to export rules as a MongoDB find object as well as populating the builder from a MongoDB object.
  */
 
@@ -30,17 +31,17 @@ QueryBuilder.defaults({
     },
 
     mongoRuleOperators: {
+        $eq: function(v) {
+            return {
+                'val': v,
+                'op': v === null ? 'is_null' : (v === '' ? 'is_empty' : 'equal')
+            };
+        },
         $ne: function(v) {
             v = v.$ne;
             return {
                 'val': v,
                 'op': v === null ? 'is_not_null' : (v === '' ? 'is_not_empty' : 'not_equal')
-            };
-        },
-        eq: function(v) {
-            return {
-                'val': v,
-                'op': v === null ? 'is_null' : (v === '' ? 'is_empty' : 'equal')
             };
         },
         $regex: function(v) {
@@ -91,19 +92,22 @@ QueryBuilder.defaults({
     }
 });
 
-QueryBuilder.extend({
+QueryBuilder.extend(/** @lends module:plugins.MongoDbSupport.prototype */ {
     /**
      * Returns rules as a MongoDB query
-     * @memberof module:MongoDbSupportPlugin
      * @param {object} [data] - current rules by default
      * @returns {object}
-     * @fires module:MongoDbSupportPlugin.changer:getMongoDBField
-     * @fires module:MongoDbSupportPlugin.changer:ruleToMongo
-     * @fires module:MongoDbSupportPlugin.changer:groupToMongo
+     * @fires module:plugins.MongoDbSupport.changer:getMongoDBField
+     * @fires module:plugins.MongoDbSupport.changer:ruleToMongo
+     * @fires module:plugins.MongoDbSupport.changer:groupToMongo
      * @throws UndefinedMongoConditionError, UndefinedMongoOperatorError
      */
     getMongo: function(data) {
         data = (data === undefined) ? this.getRules() : data;
+
+        if (!data) {
+            return null;
+        }
 
         var self = this;
 
@@ -128,7 +132,6 @@ QueryBuilder.extend({
                 else {
                     var mdb = self.settings.mongoOperators[rule.operator];
                     var ope = self.getOperatorByType(rule.operator);
-                    var values = [];
 
                     if (mdb === undefined) {
                         Utils.error('UndefinedMongoOperator', 'Unknown MongoDB operation for operator "{0}"', rule.operator);
@@ -138,16 +141,12 @@ QueryBuilder.extend({
                         if (!(rule.value instanceof Array)) {
                             rule.value = [rule.value];
                         }
-
-                        rule.value.forEach(function(v) {
-                            values.push(Utils.changeType(v, rule.type, false));
-                        });
                     }
 
                     /**
                      * Modifies the MongoDB field used by a rule
                      * @event changer:getMongoDBField
-                     * @memberof module:MongoDbSupportPlugin
+                     * @memberof module:plugins.MongoDbSupport
                      * @param {string} field
                      * @param {Rule} rule
                      * @returns {string}
@@ -155,19 +154,19 @@ QueryBuilder.extend({
                     var field = self.change('getMongoDBField', rule.field, rule);
 
                     var ruleExpression = {};
-                    ruleExpression[field] = mdb.call(self, values);
+                    ruleExpression[field] = mdb.call(self, rule.value);
 
                     /**
                      * Modifies the MongoDB expression generated for a rul
                      * @event changer:ruleToMongo
-                     * @memberof module:MongoDbSupportPlugin
+                     * @memberof module:plugins.MongoDbSupport
                      * @param {object} expression
                      * @param {Rule} rule
                      * @param {*} value
                      * @param {function} valueWrapper - function that takes the value and adds the operator
                      * @returns {object}
                      */
-                    parts.push(self.change('ruleToMongo', ruleExpression, rule, values, mdb));
+                    parts.push(self.change('ruleToMongo', ruleExpression, rule, rule.value, mdb));
                 }
             });
 
@@ -177,7 +176,7 @@ QueryBuilder.extend({
             /**
              * Modifies the MongoDB expression generated for a group
              * @event changer:groupToMongo
-             * @memberof module:MongoDbSupportPlugin
+             * @memberof module:plugins.MongoDbSupport
              * @param {object} expression
              * @param {Group} group
              * @returns {object}
@@ -188,13 +187,12 @@ QueryBuilder.extend({
 
     /**
      * Converts a MongoDB query to rules
-     * @memberof module:MongoDbSupportPlugin
      * @param {object} query
      * @returns {object}
-     * @fires module:MongoDbSupportPlugin.changer:parseMongoNode
-     * @fires module:MongoDbSupportPlugin.changer:getMongoDBFieldID
-     * @fires module:MongoDbSupportPlugin.changer:mongoToRule
-     * @fires module:MongoDbSupportPlugin.changer:mongoToGroup
+     * @fires module:plugins.MongoDbSupport.changer:parseMongoNode
+     * @fires module:plugins.MongoDbSupport.changer:getMongoDBFieldID
+     * @fires module:plugins.MongoDbSupport.changer:mongoToRule
+     * @fires module:plugins.MongoDbSupport.changer:mongoToGroup
      * @throws MongoParseError, UndefinedMongoConditionError, UndefinedMongoOperatorError
      */
     getRulesFromMongo: function(query) {
@@ -207,7 +205,7 @@ QueryBuilder.extend({
         /**
          * Custom parsing of a MongoDB expression, you can return a sub-part of the expression, or a well formed group or rule JSON
          * @event changer:parseMongoNode
-         * @memberof module:MongoDbSupportPlugin
+         * @memberof module:plugins.MongoDbSupport
          * @param {object} expression
          * @returns {object} expression, rule or group
          */
@@ -226,7 +224,7 @@ QueryBuilder.extend({
             };
         }
 
-        var key = andOr(query);
+        var key = self.getMongoCondition(query);
         if (!key) {
             Utils.error('MongoParse', 'Invalid MongoDB query format');
         }
@@ -251,7 +249,7 @@ QueryBuilder.extend({
                     return;
                 }
 
-                var key = andOr(data);
+                var key = self.getMongoCondition(data);
                 if (key) {
                     parts.push(parse(data, key));
                 }
@@ -259,7 +257,7 @@ QueryBuilder.extend({
                     var field = Object.keys(data)[0];
                     var value = data[field];
 
-                    var operator = determineMongoOperator(value, field);
+                    var operator = self.getMongoOperator(value);
                     if (operator === undefined) {
                         Utils.error('MongoParse', 'Invalid MongoDB query format');
                     }
@@ -271,20 +269,12 @@ QueryBuilder.extend({
 
                     var opVal = mdbrl.call(self, value);
 
-                    /**
-                     * Returns a filter identifier from the MongoDB field
-                     * @event changer:getMongoDBFieldID
-                     * @memberof module:MongoDbSupportPlugin
-                     * @param {string} field
-                     * @param {*} value
-                     * @returns {string}
-                     */
-                    var id = self.change('getMongoDBFieldID', field, value);
+                    var id = self.getMongoDBFieldID(field, value);
 
                     /**
                      * Modifies the rule generated from the MongoDB expression
                      * @event changer:mongoToRule
-                     * @memberof module:MongoDbSupportPlugin
+                     * @memberof module:plugins.MongoDbSupport
                      * @param {object} rule
                      * @param {object} expression
                      * @returns {object}
@@ -303,7 +293,7 @@ QueryBuilder.extend({
             /**
              * Modifies the group generated from the MongoDB expression
              * @event changer:mongoToGroup
-             * @memberof module:MongoDbSupportPlugin
+             * @memberof module:plugins.MongoDbSupport
              * @param {object} group
              * @param {object} expression
              * @returns {object}
@@ -317,63 +307,87 @@ QueryBuilder.extend({
 
     /**
      * Sets rules a from MongoDB query
-     * @memberof module:MongoDbSupportPlugin
-     * @see module:MongoDbSupportPlugin.getRulesFromMongo
+     * @see module:plugins.MongoDbSupport.getRulesFromMongo
      */
     setRulesFromMongo: function(query) {
         this.setRules(this.getRulesFromMongo(query));
-    }
-});
+    },
 
-/**
- * Finds which operator is used in a MongoDB sub-object
- * @memberof module:MongoDbSupportPlugin
- * @param {*} value
- * @returns {string|undefined}
- * @private
- */
-function determineMongoOperator(value) {
-    if (value !== null && typeof value == 'object') {
-        var subkeys = Object.keys(value);
+    /**
+     * Returns a filter identifier from the MongoDB field.
+     * Automatically use the only one filter with a matching field, fires a changer otherwise.
+     * @param {string} field
+     * @param {*} value
+     * @fires module:plugins.MongoDbSupport:changer:getMongoDBFieldID
+     * @returns {string}
+     * @private
+     */
+    getMongoDBFieldID: function(field, value) {
+        var matchingFilters = this.filters.filter(function(filter) {
+            return filter.field === field;
+        });
 
-        if (subkeys.length === 1) {
-            return subkeys[0];
+        var id;
+        if (matchingFilters.length === 1) {
+            id = matchingFilters[0].id;
         }
         else {
-            if (value.$gte !== undefined && value.$lte !== undefined) {
+            /**
+             * Returns a filter identifier from the MongoDB field
+             * @event changer:getMongoDBFieldID
+             * @memberof module:plugins.MongoDbSupport
+             * @param {string} field
+             * @param {*} value
+             * @returns {string}
+             */
+            id = this.change('getMongoDBFieldID', field, value);
+        }
+
+        return id;
+    },
+
+    /**
+     * Finds which operator is used in a MongoDB sub-object
+     * @param {*} data
+     * @returns {string|undefined}
+     * @private
+     */
+    getMongoOperator: function(data) {
+        if (data !== null && typeof data === 'object') {
+            if (data.$gte !== undefined && data.$lte !== undefined) {
                 return 'between';
             }
-            if (value.$lt !== undefined && value.$gt !== undefined) {
+            if (data.$lt !== undefined && data.$gt !== undefined) {
                 return 'not_between';
             }
-            else if (value.$regex !== undefined) { // optional $options
-                return '$regex';
+
+            var knownKeys = Object.keys(data).filter(function(key) {
+                return !!this.settings.mongoRuleOperators[key];
+            }.bind(this));
+
+            if (knownKeys.length === 1) {
+                return knownKeys[0];
             }
-            else {
-                return;
+        }
+        else {
+            return '$eq';
+        }
+    },
+
+
+    /**
+     * Returns the key corresponding to "$or" or "$and"
+     * @param {object} data
+     * @returns {string|undefined}
+     * @private
+     */
+    getMongoCondition: function(data) {
+        var keys = Object.keys(data);
+
+        for (var i = 0, l = keys.length; i < l; i++) {
+            if (keys[i].toLowerCase() === '$or' || keys[i].toLowerCase() === '$and') {
+                return keys[i];
             }
         }
     }
-    else {
-        return 'eq';
-    }
-}
-
-/**
- * Returns the key corresponding to "$or" or "$and"
- * @memberof module:MongoDbSupportPlugin
- * @param {object} data
- * @returns {string}
- * @private
- */
-function andOr(data) {
-    var keys = Object.keys(data);
-
-    for (var i = 0, l = keys.length; i < l; i++) {
-        if (keys[i].toLowerCase() == '$or' || keys[i].toLowerCase() == '$and') {
-            return keys[i];
-        }
-    }
-
-    return undefined;
-}
+});

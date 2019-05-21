@@ -64,44 +64,6 @@ $.extend(Model.prototype, /** @lends Model.prototype */ {
     }
 });
 
-/**
- * Defines properties on an Node prototype with getter and setter.<br>
- *     Update events are emitted in the setter through root Model (if any).<br>
- *     The object must have a `__` object, non enumerable property to store values.
- * @param {function} obj
- * @param {string[]} fields
- */
-Model.defineModelProperties = function(obj, fields) {
-    fields.forEach(function(field) {
-        Object.defineProperty(obj.prototype, field, {
-            enumerable: true,
-            get: function() {
-                return this.__[field];
-            },
-            set: function(value) {
-                var previousValue = (this.__[field] !== null && typeof this.__[field] == 'object') ?
-                    $.extend({}, this.__[field]) :
-                    this.__[field];
-
-                this.__[field] = value;
-
-                if (this.model !== null) {
-                    /**
-                     * After a value of the model changed
-                     * @event model:update
-                     * @memberof Model
-                     * @param {Node} node
-                     * @param {string} field
-                     * @param {*} value
-                     * @param {*} previousValue
-                     */
-                    this.model.trigger('update', this, field, value, previousValue);
-                }
-            }
-        });
-    });
-};
-
 
 /**
  * Root abstract object
@@ -177,7 +139,7 @@ var Node = function(parent, $el) {
     this.parent = parent;
 };
 
-Model.defineModelProperties(Node, ['level', 'error', 'data', 'flags']);
+Utils.defineModelProperties(Node, ['level', 'error', 'data', 'flags']);
 
 Object.defineProperty(Node.prototype, 'parent', {
     enumerable: true,
@@ -214,7 +176,7 @@ Node.prototype.getPos = function() {
 
 /**
  * Deletes self
- * @fires Model#model:drop
+ * @fires Model.model:drop
  */
 Node.prototype.drop = function() {
     var model = this.model;
@@ -239,7 +201,7 @@ Node.prototype.drop = function() {
 /**
  * Moves itself after another Node
  * @param {Node} target
- * @fires Model#model:move
+ * @fires Model.model:move
  */
 Node.prototype.moveAfter = function(target) {
     if (!this.isRoot()) {
@@ -250,7 +212,7 @@ Node.prototype.moveAfter = function(target) {
 /**
  * Moves itself at the beginning of parent or another Group
  * @param {Group} [target]
- * @fires Model#model:move
+ * @fires Model.model:move
  */
 Node.prototype.moveAtBegin = function(target) {
     if (!this.isRoot()) {
@@ -265,7 +227,7 @@ Node.prototype.moveAtBegin = function(target) {
 /**
  * Moves itself at the end of parent or another Group
  * @param {Group} [target]
- * @fires Model#model:move
+ * @fires Model.model:move
  */
 Node.prototype.moveAtEnd = function(target) {
     if (!this.isRoot()) {
@@ -281,7 +243,7 @@ Node.prototype.moveAtEnd = function(target) {
  * Moves itself at specific position of Group
  * @param {Group} target
  * @param {int} index
- * @fires Model#model:move
+ * @fires Model.model:move
  */
 Node.prototype.move = function(target, index) {
     if (!this.isRoot()) {
@@ -340,7 +302,7 @@ var Group = function(parent, $el) {
 Group.prototype = Object.create(Node.prototype);
 Group.prototype.constructor = Group;
 
-Model.defineModelProperties(Group, ['condition']);
+Utils.defineModelProperties(Group, ['condition']);
 
 /**
  * Removes group's content
@@ -375,7 +337,7 @@ Group.prototype.length = function() {
  * @param {int} [index=end]
  * @param {boolean} [trigger=false] - fire 'add' event
  * @returns {Node} the inserted node
- * @fires Model#model:add
+ * @fires Model.model:add
  */
 Group.prototype.insertNode = function(node, index, trigger) {
     if (index === undefined) {
@@ -405,7 +367,7 @@ Group.prototype.insertNode = function(node, index, trigger) {
  * @param {jQuery} $el
  * @param {int} [index=end]
  * @returns {Group}
- * @fires Model#model:add
+ * @fires Model.model:add
  */
 Group.prototype.addGroup = function($el, index) {
     return this.insertNode(new Group(this, $el), index, true);
@@ -416,7 +378,7 @@ Group.prototype.addGroup = function($el, index) {
  * @param {jQuery} $el
  * @param {int} [index=end]
  * @returns {Rule}
- * @fires Model#model:add
+ * @fires Model.model:add
  */
 Group.prototype.addRule = function($el, index) {
     return this.insertNode(new Rule(this, $el), index, true);
@@ -561,7 +523,7 @@ var Rule = function(parent, $el) {
 Rule.prototype = Object.create(Node.prototype);
 Rule.prototype.constructor = Rule;
 
-Model.defineModelProperties(Rule, ['filter', 'operator', 'value']);
+Utils.defineModelProperties(Rule, ['filter', 'operator', 'value']);
 
 /**
  * Checks if this Node is the root

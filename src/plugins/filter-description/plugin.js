@@ -1,11 +1,7 @@
 /**
- * @module FilterDescriptionPlugin
+ * @class FilterDescription
+ * @memberof module:plugins
  * @description Provides three ways to display a description about a filter: inline, Bootsrap Popover or Bootbox.
- */
-
-/**
- * @function init
- * @memberof module:FilterDescriptionPlugin
  * @param {object} [options]
  * @param {string} [options.icon='glyphicon glyphicon-info-sign']
  * @param {string} [options.mode='popover'] - inline, popover or bootbox
@@ -27,7 +23,7 @@ QueryBuilder.define('filter-description', function(options) {
                     $p.appendTo(rule.$el);
                 }
                 else {
-                    $p.show();
+                    $p.css('display', '');
                 }
 
                 $p.html('<i class="' + options.icon + '"></i> ' + description);
@@ -67,7 +63,7 @@ QueryBuilder.define('filter-description', function(options) {
                     });
                 }
                 else {
-                    $b.show();
+                    $b.css('display', '');
                 }
 
                 $b.data('bs.popover').options.content = description;
@@ -100,6 +96,9 @@ QueryBuilder.define('filter-description', function(options) {
                         bootbox.alert($b.data('description'));
                     });
                 }
+                else {
+                    $b.css('display', '');
+                }
 
                 $b.data('description', description);
             }
@@ -110,10 +109,9 @@ QueryBuilder.define('filter-description', function(options) {
     mode: 'popover'
 });
 
-QueryBuilder.extend({
+QueryBuilder.extend(/** @lends module:plugins.FilterDescription.prototype */ {
     /**
      * Returns the description of a filter for a particular rule (if present)
-     * @memberof module:FilterDescriptionPlugin
      * @param {object} filter
      * @param {Rule} [rule]
      * @returns {string}

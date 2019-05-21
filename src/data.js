@@ -3,7 +3,7 @@
  * @param {Rule} rule
  * @param {string|string[]} value
  * @returns {array|boolean} true or error array
- * @fires QueryBuilder#changer:validateValue
+ * @fires QueryBuilder.changer:validateValue
  */
 QueryBuilder.prototype.validateValue = function(rule, value) {
     var validation = rule.filter.validation || {};
@@ -49,7 +49,7 @@ QueryBuilder.prototype._validateValue = function(rule, value) {
 
     for (var i = 0; i < operator.nb_inputs; i++) {
         if (!operator.multiple && $.isArray(value[i]) && value[i].length > 1) {
-            result = ['operator_not_multiple', operator.type];
+            result = ['operator_not_multiple', operator.type, this.translate('operators', operator.type)];
             break;
         }
 
@@ -221,6 +221,29 @@ QueryBuilder.prototype._validateValue = function(rule, value) {
         }
     }
 
+    if ((rule.operator.type === 'between' || rule.operator.type === 'not_between') && value.length === 2) {
+        switch (QueryBuilder.types[filter.type]) {
+            case 'number':
+                if (value[0] > value[1]) {
+                    result = ['number_between_invalid', value[0], value[1]];
+                }
+                break;
+
+            case 'datetime':
+                // we need MomentJS
+                if (validation.format) {
+                    if (!('moment' in window)) {
+                        Utils.error('MissingLibrary', 'MomentJS is required for Date/Time validation. Get it here http://momentjs.com');
+                    }
+
+                    if (moment(value[0], validation.format).isAfter(moment(value[1], validation.format))) {
+                        result = ['datetime_between_invalid', value[0], value[1]];
+                    }
+                }
+                break;
+        }
+    }
+
     return result;
 };
 
@@ -246,8 +269,7 @@ QueryBuilder.prototype.nextRuleId = function() {
  * Returns the operators for a filter
  * @param {string|object} filter - filter id or filter object
  * @returns {object[]}
- * @fires QueryBuilder#changer:getOperators
- * @private
+ * @fires QueryBuilder.changer:getOperators
  */
 QueryBuilder.prototype.getOperators = function(filter) {
     if (typeof filter == 'string') {
@@ -295,7 +317,6 @@ QueryBuilder.prototype.getOperators = function(filter) {
  * @param {boolean} [doThrow=true]
  * @returns {object|null}
  * @throws UndefinedFilterError
- * @private
  */
 QueryBuilder.prototype.getFilterById = function(id, doThrow) {
     if (id == '-1') {
@@ -319,7 +340,6 @@ QueryBuilder.prototype.getFilterById = function(id, doThrow) {
  * @param {boolean} [doThrow=true]
  * @returns {object|null}
  * @throws UndefinedOperatorError
- * @private
  */
 QueryBuilder.prototype.getOperatorByType = function(type, doThrow) {
     if (type == '-1') {
@@ -341,7 +361,7 @@ QueryBuilder.prototype.getOperatorByType = function(type, doThrow) {
  * Returns rule's current input value
  * @param {Rule} rule
  * @returns {*}
- * @fires QueryBuilder#changer:getRuleValue
+ * @fires QueryBuilder.changer:getRuleValue
  * @private
  */
 QueryBuilder.prototype.getRuleInputValue = function(rule) {
@@ -394,11 +414,20 @@ QueryBuilder.prototype.getRuleInputValue = function(rule) {
             }
         }
 
-        if (operator.multiple && filter.value_separator) {
-            value = value.map(function(val) {
-                return val.split(filter.value_separator);
-            });
-        }
+        value = value.map(function(val) {
+            if (operator.multiple && filter.value_separator && typeof val == 'string') {
+                val = val.split(filter.value_separator);
+            }
+
+            if ($.isArray(val)) {
+                return val.map(function(subval) {
+                    return Utils.changeType(subval, filter.type);
+                });
+            }
+            else {
+                return Utils.changeType(val, filter.type);
+            }
+        });
 
         if (operator.nb_inputs === 1) {
             value = value[0];
@@ -435,7 +464,7 @@ QueryBuilder.prototype.setRuleInputValue = function(rule, value) {
         return;
     }
 
-    this._updating_input = true;
+    rule._updating_input = true;
 
     if (filter.valueSetter) {
         filter.valueSetter.call(this, rule, value);
@@ -476,14 +505,14 @@ QueryBuilder.prototype.setRuleInputValue = function(rule, value) {
         }
     }
 
-    this._updating_input = false;
+    rule._updating_input = false;
 };
 
 /**
  * Parses rule flags
  * @param {object} rule
  * @returns {object}
- * @fires QueryBuilder#changer:parseRuleFlags
+ * @fires QueryBuilder.changer:parseRuleFlags
  * @private
  */
 QueryBuilder.prototype.parseRuleFlags = function(rule) {
@@ -539,7 +568,7 @@ QueryBuilder.prototype.getRuleFlags = function(flags, all) {
  * Parses group flags
  * @param {object} group
  * @returns {object}
- * @fires QueryBuilder#changer:parseGroupFlags
+ * @fires QueryBuilder.changer:parseGroupFlags
  * @private
  */
 QueryBuilder.prototype.parseGroupFlags = function(group) {
@@ -592,13 +621,36 @@ QueryBuilder.prototype.getGroupFlags = function(flags, all) {
 };
 
 /**
- * Translates a label
- * @param {string|object} label
+ * Translate a label either by looking in the `lang` object or in itself if it's an object where keys are language codes
+ * @param {string} [category]
+ * @param {string|object} key
  * @returns {string}
- * @private
+ * @fires QueryBuilder.changer:translate
  */
-QueryBuilder.prototype.getTranslatedLabel = function(label) {
-    return typeof label == 'object' ? (label[this.settings.lang_code] || label['en']) : label;
+QueryBuilder.prototype.translate = function(category, key) {
+    if (!key) {
+        key = category;
+        category = undefined;
+    }
+
+    var translation;
+    if (typeof key === 'object') {
+        translation = key[this.settings.lang_code] || key['en'];
+    }
+    else {
+        translation = (category ? this.lang[category] : this.lang)[key] || key;
+    }
+
+    /**
+     * Modifies the translated label
+     * @event changer:translate
+     * @memberof QueryBuilder
+     * @param {string} translation
+     * @param {string|object} key
+     * @param {string} [category]
+     * @returns {string}
+     */
+    return this.change('translate', translation, key, category);
 };
 
 /**

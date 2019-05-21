@@ -1,7 +1,15 @@
 /**
- * @module SqlSupportPlugin
+ * @class SqlSupport
+ * @memberof module:plugins
  * @description Allows to export rules as a SQL WHERE statement as well as populating the builder from an SQL query.
+ * @param {object} [options]
+ * @param {boolean} [options.boolean_as_integer=true] - `true` to convert boolean values to integer in the SQL output
  */
+QueryBuilder.define('sql-support', function(options) {
+
+}, {
+    boolean_as_integer: true
+});
 
 QueryBuilder.defaults({
     // operators for internal -> SQL conversion
@@ -221,29 +229,36 @@ QueryBuilder.defaults({
 
 /**
  * @typedef {object} SqlQuery
- * @memberof module:SqlSupportPlugin
+ * @memberof module:plugins.SqlSupport
  * @property {string} sql
  * @property {object} params
  */
 
-QueryBuilder.extend({
+QueryBuilder.extend(/** @lends module:plugins.SqlSupport.prototype */ {
     /**
      * Returns rules as a SQL query
-     * @memberof module:SqlSupportPlugin
      * @param {boolean|string} [stmt] - use prepared statements: false, 'question_mark', 'numbered', 'numbered(@)', 'named', 'named(@)'
      * @param {boolean} [nl=false] output with new lines
      * @param {object} [data] - current rules by default
-     * @returns {module:SqlSupportPlugin.SqlQuery}
-     * @fires module:SqlSupportPlugin.changer:getSQLField
-     * @fires module:SqlSupportPlugin.changer:ruleToSQL
-     * @fires module:SqlSupportPlugin.changer:groupToSQL
+     * @returns {module:plugins.SqlSupport.SqlQuery}
+     * @fires module:plugins.SqlSupport.changer:getSQLField
+     * @fires module:plugins.SqlSupport.changer:ruleToSQL
+     * @fires module:plugins.SqlSupport.changer:groupToSQL
      * @throws UndefinedSQLConditionError, UndefinedSQLOperatorError
      */
     getSQL: function(stmt, nl, data) {
         data = (data === undefined) ? this.getRules() : data;
-        nl = !!nl ? '\n' : ' ';
 
-        if (stmt === true) stmt = 'question_mark';
+        if (!data) {
+            return null;
+        }
+
+        nl = !!nl ? '\n' : ' ';
+        var boolean_as_integer = this.getPluginOptions('sql-support', 'boolean_as_integer');
+
+        if (stmt === true) {
+            stmt = 'question_mark';
+        }
         if (typeof stmt == 'string') {
             var config = getStmtConfig(stmt);
             stmt = this.settings.sqlStatements[config[1]](config[2]);
@@ -288,10 +303,10 @@ QueryBuilder.extend({
                                 value += sql.sep;
                             }
 
-                            if (rule.type == 'integer' || rule.type == 'double' || rule.type == 'boolean') {
-                                v = Utils.changeType(v, rule.type, true);
+                            if (rule.type == 'boolean' && boolean_as_integer) {
+                                v = v ? 1 : 0;
                             }
-                            else if (!stmt) {
+                            else if (!stmt && rule.type !== 'integer' && rule.type !== 'double' && rule.type !== 'boolean') {
                                 v = Utils.escapeString(v);
                             }
 
@@ -313,13 +328,15 @@ QueryBuilder.extend({
                     }
 
                     var sqlFn = function(v) {
-                        return sql.op.replace(/\?/, v);
+                        return sql.op.replace('?', function() {
+                            return v;
+                        });
                     };
 
                     /**
                      * Modifies the SQL field used by a rule
                      * @event changer:getSQLField
-                     * @memberof module:SqlSupportPlugin
+                     * @memberof module:plugins.SqlSupport
                      * @param {string} field
                      * @param {Rule} rule
                      * @returns {string}
@@ -331,7 +348,7 @@ QueryBuilder.extend({
                     /**
                      * Modifies the SQL generated for a rule
                      * @event changer:ruleToSQL
-                     * @memberof module:SqlSupportPlugin
+                     * @memberof module:plugins.SqlSupport
                      * @param {string} expression
                      * @param {Rule} rule
                      * @param {*} value
@@ -347,7 +364,7 @@ QueryBuilder.extend({
             /**
              * Modifies the SQL generated for a group
              * @event changer:groupToSQL
-             * @memberof module:SqlSupportPlugin
+             * @memberof module:plugins.SqlSupport
              * @param {string} expression
              * @param {Group} group
              * @returns {string}
@@ -370,14 +387,13 @@ QueryBuilder.extend({
 
     /**
      * Convert a SQL query to rules
-     * @memberof module:SqlSupportPlugin
-     * @param {string|module:SqlSupportPlugin.SqlQuery} query
+     * @param {string|module:plugins.SqlSupport.SqlQuery} query
      * @param {boolean|string} stmt
      * @returns {object}
-     * @fires module:SqlSupportPlugin.changer:parseSQLNode
-     * @fires module:SqlSupportPlugin.changer:getSQLFieldID
-     * @fires module:SqlSupportPlugin.changer:sqlToRule
-     * @fires module:SqlSupportPlugin.changer:sqlToGroup
+     * @fires module:plugins.SqlSupport.changer:parseSQLNode
+     * @fires module:plugins.SqlSupport.changer:getSQLFieldID
+     * @fires module:plugins.SqlSupport.changer:sqlToRule
+     * @fires module:plugins.SqlSupport.changer:sqlToGroup
      * @throws MissingLibraryError, SQLParseError, UndefinedSQLOperatorError
      */
     getRulesFromSQL: function(query, stmt) {
@@ -414,7 +430,7 @@ QueryBuilder.extend({
         /**
          * Custom parsing of an AST node generated by SQLParser, you can return a sub-part of the tree, or a well formed group or rule JSON
          * @event changer:parseSQLNode
-         * @memberof module:SqlSupportPlugin
+         * @memberof module:plugins.SqlSupport
          * @param {object} AST node
          * @returns {object} tree, rule or group
          */
@@ -443,6 +459,10 @@ QueryBuilder.extend({
         var curr = out;
 
         (function flatten(data, i) {
+            if (data === null) {
+                return;
+            }
+
             // allow plugins to manually parse or handle special cases
             data = self.change('parseSQLNode', data);
 
@@ -466,11 +486,24 @@ QueryBuilder.extend({
             // it's a node
             if (['AND', 'OR'].indexOf(data.operation.toUpperCase()) !== -1) {
                 // create a sub-group if the condition is not the same and it's not the first level
-                if (i > 0 && curr.condition != data.operation.toUpperCase()) {
+
+                /**
+                 * Given an existing group and an AST node, determines if a sub-group must be created
+                 * @event changer:sqlGroupsDistinct
+                 * @memberof module:plugins.SqlSupport
+                 * @param {boolean} create - true by default if the group condition is different
+                 * @param {object} group
+                 * @param {object} AST
+                 * @param {int} current group level
+                 * @returns {boolean}
+                 */
+                var createGroup = self.change('sqlGroupsDistinct', i > 0 && curr.condition != data.operation.toUpperCase(), curr, data, i);
+
+                if (createGroup) {
                     /**
                      * Modifies the group generated from the SQL expression (this is called before the group is filled with rules)
                      * @event changer:sqlToGroup
-                     * @memberof module:SqlSupportPlugin
+                     * @memberof module:plugins.SqlSupport
                      * @param {object} group
                      * @param {object} AST
                      * @returns {object}
@@ -546,20 +579,12 @@ QueryBuilder.extend({
                     Utils.error('SQLParse', 'Cannot find field name in {0}', JSON.stringify(data.left));
                 }
 
-                /**
-                 * Returns a filter identifier from the SQL field
-                 * @event changer:getSQLFieldID
-                 * @memberof module:SqlSupportPlugin
-                 * @param {string} field
-                 * @param {*} value
-                 * @returns {string}
-                 */
-                var id = self.change('getSQLFieldID', field, value);
+                var id = self.getSQLFieldID(field, value);
 
                 /**
                  * Modifies the rule generated from the SQL expression
                  * @event changer:sqlToRule
-                 * @memberof module:SqlSupportPlugin
+                 * @memberof module:plugins.SqlSupport
                  * @param {object} rule
                  * @param {object} AST
                  * @returns {object}
@@ -580,17 +605,49 @@ QueryBuilder.extend({
 
     /**
      * Sets the builder's rules from a SQL query
-     * @memberof module:SqlSupportPlugin
-     * @see module:SqlSupportPlugin.getRulesFromSQL
+     * @see module:plugins.SqlSupport.getRulesFromSQL
      */
     setRulesFromSQL: function(query, stmt) {
         this.setRules(this.getRulesFromSQL(query, stmt));
+    },
+
+    /**
+     * Returns a filter identifier from the SQL field.
+     * Automatically use the only one filter with a matching field, fires a changer otherwise.
+     * @param {string} field
+     * @param {*} value
+     * @fires module:plugins.SqlSupport:changer:getSQLFieldID
+     * @returns {string}
+     * @private
+     */
+    getSQLFieldID: function(field, value) {
+        var matchingFilters = this.filters.filter(function(filter) {
+            return filter.field.toLowerCase() === field.toLowerCase();
+        });
+
+        var id;
+        if (matchingFilters.length === 1) {
+            id = matchingFilters[0].id;
+        }
+        else {
+            /**
+             * Returns a filter identifier from the SQL field
+             * @event changer:getSQLFieldID
+             * @memberof module:plugins.SqlSupport
+             * @param {string} field
+             * @param {*} value
+             * @returns {string}
+             */
+            id = this.change('getSQLFieldID', field, value);
+        }
+
+        return id;
     }
 });
 
 /**
  * Parses the statement configuration
- * @memberof module:SqlSupportPlugin
+ * @memberof module:plugins.SqlSupport
  * @param {string} stmt
  * @returns {Array} null, mode, option
  * @private

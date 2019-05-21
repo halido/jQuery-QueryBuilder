@@ -1,11 +1,7 @@
 /**
- * @module BtSelectpickerPlugin
+ * @class BtSelectpicker
+ * @memberof module:plugins
  * @descriptioon Applies Bootstrap Select on filters and operators combo-boxes.
- */
-
-/**
- * @function init
- * @memberof module:BtSelectpickerPlugin
  * @param {object} [options]
  * @param {string} [options.container='body']
  * @param {string} [options.style='btn-inverse btn-xs']
@@ -36,6 +32,11 @@ QueryBuilder.define('bt-selectpicker', function(options) {
 
     this.on('afterUpdateRuleOperator', function(e, rule) {
         rule.$el.find(Selectors.rule_operator).selectpicker('render');
+    });
+
+    this.on('beforeDeleteRule', function(e, rule) {
+        rule.$el.find(Selectors.rule_filter).selectpicker('destroy');
+        rule.$el.find(Selectors.rule_operator).selectpicker('destroy');
     });
 }, {
     container: 'body',
